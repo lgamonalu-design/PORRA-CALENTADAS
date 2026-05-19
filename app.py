@@ -3,28 +3,55 @@ import pandas as pd
 import json
 import os
 
-# --- 1. CONFIGURACIÓN DE LA PÁGINA ---
-st.set_page_config(page_title="La Porra de Calentadas", page_icon="🏆", layout="centered")
+st.set_page_config(page_title="La Porra de Calentadas", page_icon="🏆", layout="wide")
+DATA_FILE = "datos_porra_v3.json"
 
-# --- 2. BASE DE DATOS LOCAL ---
-DATA_FILE = "datos_porra.json"
+# --- GENERADOR DE LOS 104 PARTIDOS ---
+def generar_partidos_completos():
+    partidos = []
+    pid = 1
+    
+    # 1. Fase de Grupos (He metido tus equipos reales del Excel)
+    grupos = {
+        "A": ["México", "Corea del Sur", "República Checa", "Sudáfrica"],
+        "B": ["Canadá", "Bosnia", "Catar", "Suiza"],
+        "C": ["Brasil", "Marruecos", "Haití", "Escocia"],
+        "D": ["Estados Unidos", "Paraguay", "Australia", "Turquía"],
+        "E": ["Alemania", "Curazao", "Costa de Marfil", "Ecuador"],
+        "F": ["Países Bajos", "Japón", "Suecia", "Túnez"],
+        "G": ["Bélgica", "Egipto", "Irán", "Nueva Zelanda"],
+        "H": ["España", "Chile", "Arabia Saudita", "Gales"],
+        "I": ["Francia", "Bolivia", "Malí", "Ucrania"],
+        "J": ["Portugal", "Perú", "Argelia", "Austria"],
+        "K": ["Italia", "Colombia", "Uzbekistán", "Dinamarca"],
+        "L": ["Inglaterra", "Croacia", "Ghana", "Panamá"]
+    }
+    
+    for letra, equipos in grupos.items():
+        cruces = [(0,3), (1,2), (2,0), (3,1), (1,0), (3,2)]
+        for i, j in cruces:
+            partidos.append({"id": pid, "fase": f"Grupo {letra}", "local": equipos[i], "visitante": equipos[j], "jugado": False, "res_l": 0, "res_v": 0})
+            pid += 1
+
+    # 2. Eliminatorias (Plantillas vacías que el Admin rellenará)
+    fases_elim = [("16avos de Final", 16), ("Octavos de Final", 8), ("Cuartos de Final", 4), ("Semifinal", 2), ("Tercer Puesto", 1), ("FINAL", 1)]
+    
+    for nombre_fase, cantidad in fases_elim:
+        for _ in range(cantidad):
+            partidos.append({"id": pid, "fase": nombre_fase, "local": f"Por Definir (L)", "visitante": f"Por Definir (V)", "jugado": False, "res_l": 0, "res_v": 0})
+            pid += 1
+            
+    return partidos
 
 def cargar_datos():
     if not os.path.exists(DATA_FILE):
-        # Datos por defecto la primera vez que se abre
         datos_iniciales = {
-            "usuarios": ["Tú", "Amigo 1", "Amigo 2", "Amigo 3", "Amigo 4", "Amigo 5", "Amigo 6", "Amigo 7"],
-            "partidos": [
-                {"id": 1, "equipo_local": "España", "equipo_visitante": "Brasil", "jugado": False, "res_local": 0, "res_visitante": 0},
-                {"id": 2, "equipo_local": "Argentina", "equipo_visitante": "Francia", "jugado": False, "res_local": 0, "res_visitante": 0},
-                {"id": 3, "equipo_local": "Inglaterra", "equipo_visitante": "Alemania", "jugado": False, "res_local": 0, "res_visitante": 0}
-            ],
+            "usuarios": [], 
+            "partidos": generar_partidos_completos(),
             "predicciones": {} 
         }
-        with open(DATA_FILE, "w", encoding="utf-8") as f:
-            json.dump(datos_iniciales, f)
+        guardar_datos(datos_iniciales)
         return datos_iniciales
-    
     with open(DATA_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
@@ -34,150 +61,129 @@ def guardar_datos(datos):
 
 datos = cargar_datos()
 
-# --- 3. LÓGICA DE PUNTUACIÓN ---
-def calcular_puntuacion(pred_local, pred_visit, res_local, res_visit):
-    # Resultado Exacto = 7 Puntos (Pleno)
-    if pred_local == res_local and pred_visit == res_visit:
-        return 7, True, False 
-    
-    puntos = 0
-    ganador_pred = "Local" if pred_local > pred_visit else "Visitante" if pred_visit > pred_local else "Empate"
-    ganador_res = "Local" if res_local > res_visit else "Visitante" if res_visit > res_local else "Empate"
-    
-    # Acertar Ganador = 3 Puntos
-    if ganador_pred == ganador_res:
-        puntos += 3
-        
-    # Acertar Goles Exactos de un equipo = 1 Punto por equipo
-    if pred_local == res_local: puntos += 1
-    if pred_visit == res_visit: puntos += 1
-        
-    # Premio Juanchichi: 0 Puntos en total en el partido
-    es_juanchichi = True if puntos == 0 else False
-    
-    return puntos, False, es_juanchichi
+def calcular_puntos(pl, pv, rl, rv):
+    if pl == rl and pv == rv: return 7, True, False
+    ptos = 0
+    g_p = "L" if pl > pv else "V" if pv > pl else "E"
+    g_r = "L" if rl > rv else "V" if rv > rl else "E"
+    if g_p == g_r: ptos += 3
+    if pl == rl: ptos += 1
+    if pv == rv: ptos += 1
+    return ptos, False, (ptos == 0)
 
-# --- 4. INTERFAZ DE LA WEB ---
+# --- INTERFAZ ---
 st.title("🏆 La Porra de Calentadas")
+tab_pred, tab_rank, tab_premios, tab_admin = st.tabs(["📝 Apostar", "📊 Ranking", "🏅 Premios Especiales", "⚙️ El Soporte (Admin)"])
 
-# Menú de navegación
-menu = st.sidebar.radio("Menú", ["📝 Hacer Predicciones", "📊 Ranking y Premios", "⚙️ Admin (Resultados Reales)"])
-
-if menu == "📝 Hacer Predicciones":
-    st.header("Tus Predicciones")
-    
-    # Seleccionar quién eres
-    usuario_actual = st.selectbox("¿Quién eres? (Elige tu nombre)", datos["usuarios"])
-    st.markdown("---")
-    
-    if usuario_actual not in datos["predicciones"]:
-        datos["predicciones"][usuario_actual] = {}
-        
-    for partido in datos["partidos"]:
-        st.subheader(f"⚽ {partido['equipo_local']} vs {partido['equipo_visitante']}")
-        
-        # Si el partido ya se jugó, mostrar resultados y puntos
-        if partido["jugado"]:
-            st.info(f"🚩 Partido finalizado. Resultado Real: {partido['res_local']} - {partido['res_visitante']}")
-            
-            pred = datos["predicciones"][usuario_actual].get(str(partido["id"]))
-            if pred:
-                st.write(f"Tu predicción fue: {pred['local']} - {pred['visitante']}")
-                pts, pleno, juan = calcular_puntuacion(pred['local'], pred['visitante'], partido['res_local'], partido['res_visitante'])
-                st.success(f"✨ Aura Points ganados: {pts}")
-            else:
-                st.warning("No hiciste predicción para este partido.")
-        else:
-            # Si no se ha jugado, dejar predecir
-            col1, col2 = st.columns(2)
-            
-            pred_previa_local = 0
-            pred_previa_visit = 0
-            if str(partido["id"]) in datos["predicciones"][usuario_actual]:
-                pred_previa_local = datos["predicciones"][usuario_actual][str(partido["id"])]["local"]
-                pred_previa_visit = datos["predicciones"][usuario_actual][str(partido["id"])]["visitante"]
-
-            with col1:
-                goles_local = st.number_input(f"Goles de {partido['equipo_local']}", min_value=0, step=1, key=f"loc_{partido['id']}", value=pred_previa_local)
-            with col2:
-                goles_visitante = st.number_input(f"Goles de {partido['equipo_visitante']}", min_value=0, step=1, key=f"vis_{partido['id']}", value=pred_previa_visit)
-                
-            if st.button(f"Guardar predicción", key=f"btn_{partido['id']}"):
-                datos["predicciones"][usuario_actual][str(partido["id"])] = {"local": goles_local, "visitante": goles_visitante}
-                guardar_datos(datos)
-                st.success("¡Predicción guardada correctamente!")
-        st.markdown("---")
-
-elif menu == "📊 Ranking y Premios":
-    st.header("🔥 Clasificación de Aura Points")
-    
-    ranking = []
-    for user in datos["usuarios"]:
-        puntos_totales = 0
-        plenos = 0
-        juanchichis = 0
-        
-        preds_usuario = datos["predicciones"].get(user, {})
-        
-        for partido in datos["partidos"]:
-            if partido["jugado"]:
-                pid = str(partido["id"])
-                if pid in preds_usuario:
-                    pts, pleno, juan = calcular_puntuacion(
-                        preds_usuario[pid]["local"], 
-                        preds_usuario[pid]["visitante"], 
-                        partido["res_local"], 
-                        partido["res_visitante"]
-                    )
-                    puntos_totales += pts
-                    if pleno: plenos += 1
-                    if juan: juanchichis += 1
-                    
-        ranking.append({
-            "Jugador": user, 
-            "Aura Points": puntos_totales, 
-            "Plenos": plenos, 
-            "Premios Juanchichi": juanchichis
-        })
-        
-    # Crear tabla ordenada
-    df_ranking = pd.DataFrame(ranking).sort_values(by="Aura Points", ascending=False).reset_index(drop=True)
-    df_ranking.index += 1 # Empezar en 1 en lugar de 0
-    st.dataframe(df_ranking, use_container_width=True)
-    
-    st.markdown("---")
-    st.subheader("🏅 Galardones Especiales")
-    
-    if not df_ranking.empty and df_ranking["Aura Points"].sum() > 0:
-        oraculo = df_ranking.sort_values(by="Plenos", ascending=False).iloc[0]
-        if oraculo['Plenos'] > 0:
-            st.success(f"🥇 **El Oráculo:** {oraculo['Jugador']} con {oraculo['Plenos']} resultados exactos.")
-        
-        juanchichi = df_ranking.sort_values(by="Premios Juanchichi", ascending=False).iloc[0]
-        if juanchichi['Premios Juanchichi'] > 0:
-            st.error(f"🤡 **Líder Premio Juanchichi:** {juanchichi['Jugador']} con {juanchichi['Premios Juanchichi']} fallos catastróficos absolutos.")
+# --- APOSTAR ---
+with tab_pred:
+    if not datos["usuarios"]:
+        st.warning("El Soporte debe añadir jugadores en la pestaña de configuración.")
     else:
-        st.write("Aún no hay puntos repartidos.")
-
-elif menu == "⚙️ Admin (Resultados Reales)":
-    st.header("Actualizar Resultados Reales")
-    st.warning("⚠️ Esta zona es para meter los resultados reales una vez que terminen los partidos del mundial.")
-    
-    for i, partido in enumerate(datos["partidos"]):
-        st.write(f"**{partido['equipo_local']} vs {partido['equipo_visitante']}**")
+        user = st.selectbox("👤 ¿Quién eres?", datos["usuarios"])
+        if user not in datos["predicciones"]: datos["predicciones"][user] = {}
         
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            res_loc = st.number_input(f"Real: {partido['equipo_local']}", min_value=0, step=1, key=f"res_loc_{partido['id']}", value=partido['res_local'])
-        with col2:
-            res_vis = st.number_input(f"Real: {partido['equipo_visitante']}", min_value=0, step=1, key=f"res_vis_{partido['id']}", value=partido['res_visitante'])
-        with col3:
-            jugado = st.checkbox("Finalizado", value=partido['jugado'], key=f"jug_{partido['id']}")
+        fase_filtro = st.selectbox("Filtrar por Fase", ["Todas"] + list(dict.fromkeys([p["fase"] for p in datos["partidos"]])))
+        
+        for p in datos["partidos"]:
+            if fase_filtro != "Todas" and p["fase"] != fase_filtro: continue
             
-        if st.button("Guardar Resultado Oficial", key=f"upd_{partido['id']}"):
-            datos["partidos"][i]["res_local"] = res_loc
-            datos["partidos"][i]["res_visitante"] = res_vis
-            datos["partidos"][i]["jugado"] = jugado
-            guardar_datos(datos)
-            st.success("¡Resultado actualizado en el sistema!")
-        st.markdown("---")
+            # Ocultar partidos no definidos para no ensuciar la pantalla
+            if "Por Definir" in p["local"]: continue
+            
+            with st.expander(f"[{p['id']}] {p['fase']}: {p['local']} vs {p['visitante']} {'✅ FINALIZADO' if p['jugado'] else ''}", expanded=not p['jugado']):
+                if p["jugado"]:
+                    st.info(f"Resultado Real: {p['local']} {p['res_l']} - {p['res_v']} {p['visitante']}")
+                    pred = datos["predicciones"][user].get(str(p["id"]))
+                    if pred:
+                        pts, _, _ = calcular_puntos(pred['l'], pred['v'], p['res_l'], p['res_v'])
+                        st.write(f"Tu apuesta: {pred['l']} - {pred['v']} (**+{pts} Aura Points**)")
+                else:
+                    c1, c2, c3 = st.columns([2,2,1])
+                    p_l = datos["predicciones"][user].get(str(p["id"]), {}).get('l', 0)
+                    p_v = datos["predicciones"][user].get(str(p["id"]), {}).get('v', 0)
+                    
+                    with c1: v_l = st.number_input(p['local'], 0, 15, p_l, key=f"pl_{p['id']}")
+                    with c2: v_v = st.number_input(p['visitante'], 0, 15, p_v, key=f"pv_{p['id']}")
+                    with c3:
+                        st.write("")
+                        st.write("")
+                        if st.button("Guardar", key=f"btn_{p['id']}", use_container_width=True):
+                            datos["predicciones"][user][str(p["id"])] = {'l': v_l, 'v': v_v}
+                            guardar_datos(datos)
+                            st.toast("¡Aura guardado!")
+
+# --- RANKING ---
+ranking = []
+for u in datos["usuarios"]:
+    t_ptos, t_plenos, t_juan = 0, 0, 0
+    preds = datos["predicciones"].get(u, {})
+    for p in datos["partidos"]:
+        if p["jugado"] and str(p["id"]) in preds:
+            pts, pleno, juan = calcular_puntos(preds[str(p["id"])]['l'], preds[str(p["id"])]['v'], p['res_l'], p['res_v'])
+            t_ptos += pts
+            if pleno: t_plenos += 1
+            if juan: t_juan += 1
+    ranking.append({"Jugador": u, "Aura Points": t_ptos, "Plenos": t_plenos, "Fallos Absolutos": t_juan})
+
+df_rank = pd.DataFrame(ranking)
+
+with tab_rank:
+    st.header("🔥 Clasificación General")
+    if not df_rank.empty:
+        st.dataframe(df_rank[["Jugador", "Aura Points"]].sort_values("Aura Points", ascending=False).reset_index(drop=True), use_container_width=True)
+
+with tab_premios:
+    col1, col2 = st.columns(2)
+    if not df_rank.empty:
+        with col1:
+            st.subheader("👁️ El Oráculo")
+            st.dataframe(df_rank[["Jugador", "Plenos"]].sort_values("Plenos", ascending=False).reset_index(drop=True), use_container_width=True)
+        with col2:
+            st.subheader("🤡 Premio Juanchichi")
+            st.dataframe(df_rank[["Jugador", "Fallos Absolutos"]].sort_values("Fallos Absolutos", ascending=False).reset_index(drop=True), use_container_width=True)
+
+# --- EL SOPORTE (ADMIN) ---
+with tab_admin:
+    st.header("Herramientas de Control")
+    
+    # 1. JUGADORES
+    with st.expander("👥 Gestionar Jugadores"):
+        nuevo_user = st.text_input("Nombre del nuevo amigo:")
+        if st.button("Añadir", key="add_user"):
+            if nuevo_user and nuevo_user not in datos["usuarios"]:
+                datos["usuarios"].append(nuevo_user)
+                guardar_datos(datos)
+                st.rerun()
+
+    # 2. DEFINIR CRUCES (ELIMINATORIAS)
+    with st.expander("🛠️ Configurar Siguientes Fases (Octavos, Cuartos...)"):
+        st.write("Cuando sepas qué equipos pasan de ronda, escríbelos aquí para que la gente pueda apostar.")
+        for i, p in enumerate(datos["partidos"]):
+            if p["id"] > 72: # Solo partidos de eliminatoria
+                c1, c2, c3 = st.columns([1,2,2])
+                with c1: st.write(f"**P.{p['id']} - {p['fase']}**")
+                with c2: n_l = st.text_input("Local", p['local'], key=f"nl_{p['id']}")
+                with c3: n_v = st.text_input("Visitante", p['visitante'], key=f"nv_{p['id']}")
+                
+                if n_l != p['local'] or n_v != p['visitante']:
+                    if st.button("Actualizar Equipos", key=f"upd_eq_{p['id']}"):
+                        datos["partidos"][i]["local"] = n_l
+                        datos["partidos"][i]["visitante"] = n_v
+                        guardar_datos(datos)
+                        st.rerun()
+
+    # 3. METER RESULTADOS REALES
+    with st.expander("⚽ Validar Resultados (Repartir Puntos)"):
+        for i, p in enumerate(datos["partidos"]):
+            if "Por Definir" not in p["local"]: # Solo los que ya tienen equipos reales
+                c1, c2, c3, c4 = st.columns([3, 1, 1, 1])
+                with c1: st.write(f"{p['fase']}: {p['local']} vs {p['visitante']}")
+                with c2: r_l = st.number_input("Goles L", 0, 20, p['res_l'], key=f"rrl_{p['id']}")
+                with c3: r_v = st.number_input("Goles V", 0, 20, p['res_v'], key=f"rrv_{p['id']}")
+                with c4: jug = st.checkbox("Finalizado", p['jugado'], key=f"jj_{p['id']}")
+                
+                if st.button("Validar Puntos", key=f"val_{p['id']}"):
+                    datos["partidos"][i].update({"res_l": r_l, "res_v": r_v, "jugado": jug})
+                    guardar_datos(datos)
+                    st.rerun()
